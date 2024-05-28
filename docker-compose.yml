@@ -1,63 +1,35 @@
-version: '3'
 services:
   knots:
-    image: 1maa/bitcoin:v26.1.knots20240325
-    command: -conf=/etc/knots.conf
+    build: ./knots
     restart: on-failure
     volumes:
-      - ./knots.conf:/etc/knots.conf
+      - knots_data:/home/bitcoin/.bitcoin
+  miner:
+    build: ./miner
+    restart: on-failure
+    volumes:
       - knots_data:/home/bitcoin/.bitcoin
 
-  wallet-setup:
-    image: 1maa/bitcoin:v26.1.knots20240325
-    environment:
-      - PRIVATE_KEY=cRWA13VYwVPgkUTGMTxjeoLvsFd9TnH8BYQtyMVpjsn3N5SSitEg
-      - RPC_ADDR=knots
-      - RPC_PWD=easepay
-      - RPC_USER=easepay
-      - WALLET_NAME=GEO
-    entrypoint:
-      - sh
-      - -c
-      - |
-        bitcoin-cli -rpcuser=$${RPC_USER} -rpcpassword=$${RPC_PWD} -rpcconnect=$${RPC_ADDR} -signet -named createwallet wallet_name=$${WALLET_NAME} descriptors=false
-        bitcoin-cli -rpcuser=$${RPC_USER} -rpcpassword=$${RPC_PWD} -rpcconnect=$${RPC_ADDR} -signet -named importprivkey $${PRIVATE_KEY}
-
-  miner:
-    image: 1maa/signet-miner:latest
-    environment:
-      - MINING_DIFFICULTY=1d00ffff
-      - REWARDS_BTC_ADDRESS=mty3Xnn8JhUAxNN9kzX33eCD3e5zZCnQWJ
-      - RPC_ADDR=knots
-      - RPC_PWD=easepay
-      - RPC_USER=easepay
-    entrypoint:
-      - sh
-      - -c
-      - miner --cli="bitcoin-cli -rpcuser=$${RPC_USER} -rpcpassword=$${RPC_PWD} -rpcconnect=$${RPC_ADDR}" generate --address $${REWARDS_BTC_ADDRESS} --grind-cmd="bitcoin-util grind" --nbits=$${MINING_DIFFICULTY} --ongoing
-    restart: on-failure
-
   electrs:
-    image: 1maa/electrs:latest
-    command: --conf /etc/electrs.conf
-    ports:
-      - 127.0.0.1:60601:60601
+    build: ./electrs
     restart: on-failure
     volumes:
-      - ./electrs.conf:/etc/electrs.conf
-      - electrs_data:/var/lib/electrs
+      - electrs_data:/data
 
-  mempool-web:
-    image: mempool/frontend:v3.0.0-dev8
-    environment:
-      - BACKEND_MAINNET_HTTP_HOST=mempool-api
-      - FRONTEND_HTTP_PORT=8080
-    ports:
-      - 127.0.0.1:8080:8080
+  mariadb:
+    build: ./mariadb
     restart: on-failure
+    volumes:
+      - mariadb_data:/var/lib/mysql
+
+  mongo:
+    build: ./mongo
+    restart: on-failure
+    volumes:
+      - mongo_data:/data/db
 
   mempool-api:
-    image: mempool/backend:v3.0.0-dev8
+    build: ./mempool-api
     environment:
       - CORE_RPC_HOST=knots
       - CORE_RPC_PASSWORD=easepay
@@ -74,29 +46,20 @@ services:
       - MEMPOOL_BACKEND=electrum
       - MEMPOOL_NETWORK=signet
       - STATISTICS_ENABLED=false
-    restart: on-failure
+    restart: unless-stopped
 
-  mariadb:
-    image: mariadb:11.3
+  mempool-web:
+    build: ./mempool-web
     environment:
-      - MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=true
-      - MARIADB_DATABASE=mempool
-      - MARIADB_PASSWORD=mempool
-      - MARIADB_USER=mempool
-    volumes:
-      - mariadb_data:/var/lib/mysql
+      - BACKEND_MAINNET_HTTP_HOST=mempool-api
+      - FRONTEND_HTTP_PORT=8080
+      - MEMPOOL_NETWORK=signet
     ports:
-      - 127.0.0.1:3306:3306
+      - 127.0.0.1:8080:8080
     restart: on-failure
-
-  mongo:
-    image: mongo:7.0
-    restart: on-failure
-    volumes:
-      - mongo_data:/data
 
   faucet:
-    image: 1maa/signet-faucet:latest
+    build: ./faucet
     environment:
       - BITCOIND_HOST=knots
       - BITCOIND_USER=easepay
